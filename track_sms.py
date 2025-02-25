@@ -1,7 +1,7 @@
 from sms_track import SMSTRACK
 if __name__ == '__main__':
     # Configuration
-    CREDENTIALS_PATH = 'creds1.json'
+    CREDENTIALS_PATH = 'creds.json'
     SOURCE_FOLDER_ID = '12P0yrMcumb-2-8t0FNxlGXzUomoya8re'
     TARGET_SHEET_ID = '1ATCR6d6OfAqPGdozoyA_iLOybRkj7h2-VL7do5ZVuOM'
 
