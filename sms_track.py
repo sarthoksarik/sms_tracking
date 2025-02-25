@@ -8,7 +8,7 @@ import logging
 
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO,  # Change to logging.DEBUG for more detailed output during development
+    level=logging.DEBUG,  # Change to logging.DEBUG for more detailed output during development
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
