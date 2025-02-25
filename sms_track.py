@@ -5,12 +5,14 @@ from datetime import datetime
 import re
 import logging
 
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,  # Change to logging.DEBUG for more detailed output during development
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
 
 
 class SMSTRACK:
@@ -21,6 +23,9 @@ class SMSTRACK:
             'https://www.googleapis.com/auth/drive'
         ]
         self._initialize_clients()
+        self.month_col = 1
+        self.did_col = 5
+        self.update_col = 73
         
     def _initialize_clients(self):
         """Initialize Google API clients with credentials"""
@@ -57,31 +62,23 @@ class SMSTRACK:
         :param sheet_id: Google Sheet ID to look into.
         :return: The SMS count value as an integer (or None if not found).
         """
-        # Calculate previous month in "MMMM yyyy" format (e.g., "February 2025")
-        today = datetime.today()
-        year = today.year
-        month = today.month - 1
-        if month == 0:  # Handle the January edge case
-            month = 12
-            year -= 1
-        target_date_str = datetime(year, month, 1).strftime("%B %Y")
         
         try:
             # Open the sheet and access the "SMS Logs" worksheet
             sheet = self.gspread_client.open_by_key(sheet_id).worksheet("SMS Logs")
             
             # Get all values from column 3 (which should contain month-year strings)
-            month_values = sheet.col_values(3)
+            month_values = sheet.col_values(self.month_col)
             
             # Look for the target month string in the column
-            if target_date_str in month_values:
+            if self.target_date_str in month_values:
                 # gspread uses 1-indexing for rows.
-                row_index = month_values.index(target_date_str) + 1
-                # Get the corresponding SMS count from column 4 for that row
-                sms_value = sheet.cell(row_index, 4).value
+                row_index = month_values.index(self.target_date_str) + 1
+                # Get the corresponding SMS count  for that row
+                sms_value = sheet.cell(row_index, self.month_col + 1).value
                 return int(sms_value or 0)
             else:
-                logger.warning(f"Month '{target_date_str}' not found in column 3 of sheet {sheet_id}.")
+                logger.warning(f"Month '{self.target_date_str}' not found in column {self.month_col} of sheet {sheet_id}.")
                 return None
         except Exception as e:
             logger.error(f"Error reading sheet {sheet_id}: {e}")
@@ -95,19 +92,19 @@ class SMSTRACK:
         :param value: Value to write to column 6.
         """
         try:
-            sheet = self.gspread_client.open_by_key(target_sheet_id).sheet1
-            col_values = sheet.col_values(5)
+            sheet = self.gspread_client.open_by_key(target_sheet_id).worksheet("Customers")
+            col_values = sheet.col_values(self.did_col)
             
             if phone_number in col_values:
                 row_index = col_values.index(phone_number) + 1
-                sheet.update_cell(row_index, 6, value)
+                sheet.update_cell(row_index, self.update_col, value)
                 logger.info(f"Updated {phone_number} with value: {value}")
             else:
                 logger.warning(f"Phone number {phone_number} not found in target sheet.")
         except Exception as e:
             logger.error(f"Error updating target sheet: {e}")
 
-    def process_files(self, folder_id, target_sheet_id, name_pattern="DiD3-"):
+    def process_files(self, folder_id, target_sheet_id, name_pattern="DID3-"):
         """
         Main processing method to handle all files.
         :param folder_id: Drive folder ID to process.
@@ -115,7 +112,13 @@ class SMSTRACK:
         :param name_pattern: Filename pattern to match.
         """
         files = self.search_files(folder_id, name_pattern)
-        
+        today = datetime.today()
+        year = today.year
+        month = today.month - 1
+        if month == 0:  # Handle the January edge case
+            month = 12
+            year -= 1
+        self.target_date_str = datetime(year, month, 1).strftime("%B %Y")
         for file in files:
             file_name = file['name']
             file_id = file['id']
