@@ -1,8 +1,19 @@
 import gspread
 from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
+from datetime import datetime
+import re
+import logging
 
-class GoogleSheetManager:
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,  # Change to logging.DEBUG for more detailed output during development
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
+
+class SMSTRACK:
     def __init__(self, credentials_path):
         self.credentials_path = credentials_path
         self.scopes = [
@@ -22,12 +33,12 @@ class GoogleSheetManager:
 
     def search_files(self, folder_id, name_pattern):
         """
-        Search for files in a Google Drive folder
-        :param folder_id: ID of the Drive folder to search
-        :param name_pattern: Pattern to match in filenames
-        :return: List of matching file dictionaries (id, name)
+        Search for files in a Google Drive folder.
+        :param folder_id: ID of the Drive folder to search.
+        :param name_pattern: Pattern to match in filenames.
+        :return: List of matching file dictionaries (id, name).
         """
-        query =(
+        query = (
             f"'{folder_id}' in parents "
             f"and mimeType='application/vnd.google-apps.spreadsheet' "
             f"and name contains '{name_pattern}'"
@@ -38,27 +49,50 @@ class GoogleSheetManager:
         ).execute()
         return results.get('files', [])
 
-    def last_months_smscount(self, sheet_id, column=2):
+    def get_last_month_smscount(self, sheet_id):
         """
-        Extract the last value from a specified column
-        :param sheet_id: Google Sheet ID
-        :param column: Column number to read (default: 2)
-        :return: Value from last cell or None
+        Retrieves the SMS count from column 3 for the previous month
+        (formatted as 'February 2025') found in column 2 of the sheet.
+        
+        :param sheet_id: Google Sheet ID to look into.
+        :return: The SMS count value as an integer (or None if not found).
         """
+        # Calculate previous month in "MMMM yyyy" format (e.g., "February 2025")
+        today = datetime.today()
+        year = today.year
+        month = today.month - 1
+        if month == 0:  # Handle the January edge case
+            month = 12
+            year -= 1
+        target_date_str = datetime(year, month, 1).strftime("%B %Y")
+        
         try:
-            sheet = self.gspread_client.open_by_key(sheet_id).sheet1
-            col_values = sheet.col_values(column)
-            return col_values[-1] if col_values else None
+            # Open the sheet and access the "SMS Logs" worksheet
+            sheet = self.gspread_client.open_by_key(sheet_id).worksheet("SMS Logs")
+            
+            # Get all values from column 3 (which should contain month-year strings)
+            month_values = sheet.col_values(3)
+            
+            # Look for the target month string in the column
+            if target_date_str in month_values:
+                # gspread uses 1-indexing for rows.
+                row_index = month_values.index(target_date_str) + 1
+                # Get the corresponding SMS count from column 4 for that row
+                sms_value = sheet.cell(row_index, 4).value
+                return int(sms_value or 0)
+            else:
+                logger.warning(f"Month '{target_date_str}' not found in column 3 of sheet {sheet_id}.")
+                return None
         except Exception as e:
-            print(f"Error reading sheet {sheet_id}: {str(e)}")
+            logger.error(f"Error reading sheet {sheet_id}: {e}")
             return None
 
     def update_target_sheet(self, target_sheet_id, phone_number, value):
         """
-        Update target sheet with extracted value
-        :param target_sheet_id: ID of the target Google Sheet
-        :param phone_number: Phone number to search in column 5
-        :param value: Value to write to column 6
+        Update target sheet with extracted value.
+        :param target_sheet_id: ID of the target Google Sheet.
+        :param phone_number: Phone number to search in column 5.
+        :param value: Value to write to column 6.
         """
         try:
             sheet = self.gspread_client.open_by_key(target_sheet_id).sheet1
@@ -67,19 +101,18 @@ class GoogleSheetManager:
             if phone_number in col_values:
                 row_index = col_values.index(phone_number) + 1
                 sheet.update_cell(row_index, 6, value)
-                print(f"Updated {phone_number} with value: {value}")
+                logger.info(f"Updated {phone_number} with value: {value}")
             else:
-                print(f"Phone number {phone_number} not found in target sheet")
-                
+                logger.warning(f"Phone number {phone_number} not found in target sheet.")
         except Exception as e:
-            print(f"Error updating target sheet: {str(e)}")
+            logger.error(f"Error updating target sheet: {e}")
 
     def process_files(self, folder_id, target_sheet_id, name_pattern="DiD3-"):
         """
-        Main processing method to handle all files
-        :param folder_id: Drive folder ID to process
-        :param target_sheet_id: Target sheet ID for updates
-        :param name_pattern: Filename pattern to match
+        Main processing method to handle all files.
+        :param folder_id: Drive folder ID to process.
+        :param target_sheet_id: Target sheet ID for updates.
+        :param name_pattern: Filename pattern to match.
         """
         files = self.search_files(folder_id, name_pattern)
         
@@ -87,33 +120,35 @@ class GoogleSheetManager:
             file_name = file['name']
             file_id = file['id']
             
-            # Extract phone number from filename
-            try:
-                phone_number = file_name.split('-')[1].split('.')[0]
-            except IndexError:
-                print(f"Skipping invalid filename format: {file_name}")
+            # Extract phone number from filename using regex
+            match = re.search(r'DID3(?:-[^-]*)*-(\d{9,})\b', file_name)
+            if not match:
+                logger.warning(f"Skipping invalid filename format: {file_name}")
                 continue
             
+            phone_number = match.group(1)
+            
             # Extract value from source sheet
-            last_value = self.extract_last_cell_value(file_id)
-            if not last_value:
+            last_value = self.get_last_month_smscount(file_id)
+            if last_value is None:
                 continue
                 
             # Update target sheet
             self.update_target_sheet(target_sheet_id, phone_number, last_value)
 
-# Example usage
-if __name__ == '__main__':
-    # Configuration
-    CREDENTIALS_PATH = 'credentials.json'
-    SOURCE_FOLDER_ID = 'your_source_folder_id'
-    TARGET_SHEET_ID = 'your_target_sheet_id'
 
-    # Create manager instance
-    sheet_manager = GoogleSheetManager(CREDENTIALS_PATH)
+# run
+# if __name__ == '__main__':
+#     # Configuration
+#     CREDENTIALS_PATH = 'credentials.json'
+#     SOURCE_FOLDER_ID = 'your_source_folder_id'
+#     TARGET_SHEET_ID = 'your_target_sheet_id'
+
+#     # Create manager instance
+#     sheet_manager = SMSTRACK(CREDENTIALS_PATH)
     
-    # Process files
-    sheet_manager.process_files(
-        folder_id=SOURCE_FOLDER_ID,
-        target_sheet_id=TARGET_SHEET_ID
-    )
+#     # Process files
+#     sheet_manager.process_files(
+#         folder_id=SOURCE_FOLDER_ID,
+#         target_sheet_id=TARGET_SHEET_ID
+#     )
