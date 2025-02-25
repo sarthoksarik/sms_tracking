@@ -1,6 +1,7 @@
 venv/
 test.py
 __pycache__/sms_track.cpython-312.pyc
+creds.json
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
@@ -179,5 +180,5 @@ cython_debug/
 
 test.py
 
-creds.json
+
 
