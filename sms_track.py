@@ -118,7 +118,7 @@ class SMSTRACK:
         if month == 0:  # Handle the January edge case
             month = 12
             year -= 1
-        self.target_date_str = datetime(year, month + 1, 1).strftime("%B %Y")
+        self.target_date_str = datetime(year, month, 1).strftime("%B %Y")
         for file in files:
             file_name = file['name']
             file_id = file['id']
@@ -129,7 +129,7 @@ class SMSTRACK:
                 logger.warning(f"Skipping invalid filename format: {file_name}")
                 continue
             
-            phone_number = match.group(1)
+            phone_number = match.group(1)[1:]
             
             # Extract value from source sheet
             last_value = self.get_last_month_smscount(file_id)
