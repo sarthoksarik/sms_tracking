@@ -1,0 +1,10 @@
+[Unit]
+Description=Run SMS Tracking on 1st of every month at 6PM
+
+[Timer]
+OnCalendar=*-*-1 18:00:00
+Persistent=true
+AccuracySec=1h
+
+[Install]
+WantedBy=timers.target

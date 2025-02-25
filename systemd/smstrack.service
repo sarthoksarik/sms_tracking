@@ -1,0 +1,14 @@
+[Unit]
+Description=SMS Tracking Service
+After=network-online.target
+
+[Service]
+Type=simple
+User=sarik
+WorkingDirectory=/home/sarik/SMS_TRACKING
+ExecStart=/home/sarik/SMS_TRACKING/venv/bin/python3 /home/sarik/SMS_TRACKING/track_sms.py
+StandardOutput=append:/var/log/smstrack.log
+StandardError=append:/var/log/smstrack.error.log
+
+[Install]
+WantedBy=multi-user.target
