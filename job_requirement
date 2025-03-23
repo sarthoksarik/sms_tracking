@@ -1,0 +1,5 @@
+about your actual task : python has to look up into the tab so it is searching tabs starting by Appels- 
+Then select phone number 9 digits after Appels- and see if it matches with a 9 digit in column E of the other file
+if matches so export data
+if not match, skip to other tab
+when it finish to lookup each tab it has to write previous month and year on col B 
