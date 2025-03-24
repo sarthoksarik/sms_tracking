@@ -64,12 +64,17 @@ class CALLLOGTRACK:
             try:
                 if match := self.identifier_regex.match(ws.title):
                     did = match.group(1)
-                    # Get B3:D4 range (6 cells)
-                    range_data = ws.get("B3:D4")
+                    # Get number of rows in the tab
+                    num_rows = ws.row_count
+
+                    # Select 4th and 5th rows from the last
+                    start_row = max(1, num_rows - 4)
+                    end_row = num_rows - 3
+                    range_data = ws.get(f"B{start_row}:D{end_row}")
                     # Flatten to single list [B3,C3,D3,B4,C4,D4]
                     flattened = [cell for row in range_data for cell in row]
-                    if len(flattened) == 6:
-                        data_map[did] = flattened
+
+                    data_map[did] = {}
             except Exception as e:
                 logger.error(f"Error processing {ws.title}: {e}")
         return data_map
