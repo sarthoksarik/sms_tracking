@@ -1,20 +1,13 @@
 import gspread
-from google.oauth2.service_account import Credentials
-from googleapiclient.discovery import build
-from datetime import datetime
 import re
+from datetime import datetime
 import logging
+from google.oauth2.service_account import Credentials
 
-
-# Configure logging
-logging.basicConfig(
-    level=logging.DEBUG,  # Change to logging.DEBUG for more detailed output during development
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-)
 logger = logging.getLogger(__name__)
 
 
-class CallLOGTRACK:
+class CALLLOGTRACK:
     def __init__(self, credentials_path):
         self.credentials_path = credentials_path
         self.scopes = [
@@ -23,135 +16,106 @@ class CallLOGTRACK:
         ]
         self._initialize_clients()
 
+        # Configuration
+        self.tab_prefix = "Appels-"
+        self.identifier_regex = re.compile(r"Appels-(\d{9})")
+        self.customer_lookup_col = 5  # Column E for DID numbers
+        self.data_columns = [68, 69, 70, 71, 72, 73]  # Columns to update
+        self.date_update_col = 2  # Column B for dates
+
     def _initialize_clients(self):
-        """Initialize Google API clients with credentials"""
+        """Initialize Google API clients"""
         creds = Credentials.from_service_account_file(
             self.credentials_path, scopes=self.scopes
         )
         self.gspread_client = gspread.authorize(creds)
-        self.drive_service = build("drive", "v3", credentials=creds)
 
-    def search_files(self, folder_id, name_pattern):
+    def process_call_logs(self, master_sheet_id, customer_sheet_id):
         """
-        Search for files in a Google Drive folder.
-        :param folder_id: ID of the Drive folder to search.
-        :param name_pattern: Pattern to match in filenames.
-        :return: List of matching file dictionaries (id, name).
-        """
-        query = (
-            f"'{folder_id}' in parents "
-            f"and mimeType='application/vnd.google-apps.spreadsheet' "
-            f"and name contains '{name_pattern}'"
-        )
-        results = (
-            self.drive_service.files().list(q=query, fields="files(id, name)").execute()
-        )
-        return results.get("files", [])
-
-    def get_last_month_smscount(self, sheet_id):
-        """
-        Retrieves the SMS count from column 3 for the previous month
-        (formatted as 'February 2025') found in column 2 of the sheet.
-
-        :param sheet_id: Google Sheet ID to look into.
-        :return: The SMS count value as an integer (or None if not found).
-        """
-
-        try:
-            # Open the sheet and access the "SMS Logs" worksheet
-            sheet = self.gspread_client.open_by_key(sheet_id).worksheet("SMS Logs")
-
-            # Get all values from column 3 (which should contain month-year strings)
-            month_values = sheet.col_values(self.month_col)
-
-            # Look for the target month string in the column
-            if self.target_date_str in month_values:
-                # gspread uses 1-indexing for rows.
-                row_index = month_values.index(self.target_date_str) + 1
-                # Get the corresponding SMS count  for that row
-                sms_value = sheet.cell(row_index, self.month_col + 1).value
-                return int(sms_value or 0)
-            else:
-                logger.warning(
-                    f"Month '{self.target_date_str}' not found in column {self.month_col} of sheet {sheet_id}."
-                )
-                return None
-        except Exception as e:
-            logger.error(f"Error reading sheet {sheet_id}: {e}")
-            return None
-
-    def update_target_sheet(self, target_sheet_id, phone_number, value):
-        """
-        Update target sheet with extracted value.
-        :param target_sheet_id: ID of the target Google Sheet.
-        :param phone_number: Phone number to search in column 5.
-        :param value: Value to write to column 6.
+        Main processing method
+        :param master_sheet_id: ID of the master call log spreadsheet
+        :param customer_sheet_id: ID of the customer info spreadsheet
         """
         try:
-            sheet = self.gspread_client.open_by_key(target_sheet_id).worksheet(
-                "Customers"
-            )
-            col_values = sheet.col_values(self.did_col)
+            master_sheet = self.gspread_client.open_by_key(master_sheet_id)
+            customer_sheet = self.gspread_client.open_by_key(customer_sheet_id)
 
-            if phone_number in col_values:
-                row_index = col_values.index(phone_number) + 1
-                sheet.update_cell(row_index, self.update_col, value)
-                logger.info(f"Updated {phone_number} with value: {value}")
-            else:
-                logger.warning(
-                    f"Phone number {phone_number} not found in target sheet."
-                )
+            call_logs = self._get_call_log_tabs(master_sheet)
+            data_map = self._collect_call_data(call_logs)
+
+            if data_map:
+                self._update_customer_sheet(customer_sheet, data_map)
+
         except Exception as e:
-            logger.error(f"Error updating target sheet: {e}")
+            logger.error(f"Processing failed: {e}")
 
-    def process_file(self, mastersheet_id, customer_info_sheet_id):
-        """
-        Main processing method to handle all files.
-        :param folder_id: Drive folder ID to process.
-        :param target_sheet_id: Target sheet ID for updates.
-        :param name_pattern: Filename pattern to match.
-        """
-        files = self.search_files(folder_id, name_pattern)
-        today = datetime.today()
-        year = today.year
-        month = today.month - 1
-        if month == 0:  # Handle the January edge case
-            month = 12
-            year -= 1
-        self.target_date_str = datetime(year, month, 1).strftime("%B %Y")
-        for file in files:
-            file_name = file["name"]
-            file_id = file["id"]
+    def _get_call_log_tabs(self, master_sheet):
+        """Retrieve all worksheet tabs starting with Appels-"""
+        return [
+            ws
+            for ws in master_sheet.worksheets()
+            if ws.title.startswith(self.tab_prefix)
+        ]
 
-            # Extract phone number from filename using regex
-            match = re.search(r"DID3(?:-[^-]*)*-(\d{9,})\b", file_name)
-            if not match:
-                logger.warning(f"Skipping invalid filename format: {file_name}")
-                continue
+    def _collect_call_data(self, worksheets):
+        """Collect data from 3rd/4th rows (columns B-D)"""
+        data_map = {}
+        for ws in worksheets:
+            try:
+                if match := self.identifier_regex.match(ws.title):
+                    did = match.group(1)
+                    # Get B3:D4 range (6 cells)
+                    range_data = ws.get("B3:D4")
+                    # Flatten to single list [B3,C3,D3,B4,C4,D4]
+                    flattened = [cell for row in range_data for cell in row]
+                    if len(flattened) == 6:
+                        data_map[did] = flattened
+            except Exception as e:
+                logger.error(f"Error processing {ws.title}: {e}")
+        return data_map
 
-            phone_number = match.group(1)[1:]
+    def _update_customer_sheet(self, customer_sheet, data_map):
+        """Update customer sheet with collected data"""
+        try:
+            worksheet = customer_sheet.worksheet("Customers")
+            dids = worksheet.col_values(self.customer_lookup_col)
 
-            # Extract value from source sheet
-            last_value = self.get_last_month_smscount(file_id)
-            if last_value is None:
-                continue
+            # Prepare date string
+            today = datetime.today()
+            prev_month = today.month - 1 or 12
+            prev_year = today.year if today.month > 1 else today.year - 1
+            date_str = datetime(prev_year, prev_month, 1).strftime("%B %Y")
 
-            # Update target sheet
-            self.update_target_sheet(target_sheet_id, phone_number, last_value)
+            # Prepare batch update
+            batch_data = []
+            for row_idx, did in enumerate(dids, start=1):
+                if did in data_map:
+                    # Add date update
+                    batch_data.append({"range": f"B{row_idx}", "values": [[date_str]]})
+                    # Add data updates
+                    for i, col in enumerate(self.data_columns):
+                        batch_data.append(
+                            {
+                                "range": f"{gspread.utils.rowcol_to_A1(row_idx, col)}",
+                                "values": [[data_map[did][i]]],
+                            }
+                        )
+
+            # Execute batch update in chunks
+            chunk_size = 50  # Stay under API limits
+            for i in range(0, len(batch_data), chunk_size):
+                worksheet.batch_update(batch_data[i : i + chunk_size])
+
+            logger.info(f"Updated {len(data_map)} customer records")
+
+        except Exception as e:
+            logger.error(f"Customer sheet update failed: {e}")
 
 
-# run
-# if __name__ == '__main__':
-#     # Configuration
-#     CREDENTIALS_PATH = 'credentials.json'
-#     SOURCE_FOLDER_ID = 'your_source_folder_id'
-#     TARGET_SHEET_ID = 'your_target_sheet_id'
-
-#     # Create manager instance
-#     sheet_manager = SMSTRACK(CREDENTIALS_PATH)
-
-#     # Process files
-#     sheet_manager.process_files(
-#         folder_id=SOURCE_FOLDER_ID,
-#         target_sheet_id=TARGET_SHEET_ID
-#     )
+# Usage example
+if __name__ == "__main__":
+    tracker = CALLLOGTRACK("credentials.json")
+    tracker.process_call_logs(
+        master_sheet_id="your_master_sheet_id",
+        customer_sheet_id="your_customer_sheet_id",
+    )
