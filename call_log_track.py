@@ -20,7 +20,7 @@ class CALLLOGTRACK:
         self.tab_prefix = "Appels-"
         self.identifier_regex = re.compile(r"Appels-(\d{9})")
         self.customer_lookup_col = 5  # Column E for DID numbers
-        self.data_columns = [68, 69, 70, 71, 72, 73]  # Columns to update
+        self.data_columns = [27, 29, 31, 33]  # Columns to update AA, AC, AE, AG
         self.date_update_col = 2  # Column B for dates
 
     def _initialize_clients(self):
@@ -58,23 +58,66 @@ class CALLLOGTRACK:
         ]
 
     def _collect_call_data(self, worksheets):
-        """Collect data from 3rd/4th rows (columns B-D)"""
+        """Collect data from the 1st and 2nd row of the last 5 rows (columns B-C),
+        skipping sheets with fewer than 5 rows.
+        """
         data_map = {}
         for ws in worksheets:
             try:
+                num_rows = ws.row_count
+                if num_rows < 5:
+                    logger.warning(f"Skipping {ws.title} as it has fewer than 5 rows.")
+                    continue  # Skip to the next worksheet
+
                 if match := self.identifier_regex.match(ws.title):
                     did = match.group(1)
-                    # Get number of rows in the tab
-                    num_rows = ws.row_count
 
-                    # Select 4th and 5th rows from the last
-                    start_row = max(1, num_rows - 4)
-                    end_row = num_rows - 3
-                    range_data = ws.get(f"B{start_row}:D{end_row}")
-                    # Flatten to single list [B3,C3,D3,B4,C4,D4]
-                    flattened = [cell for row in range_data for cell in row]
+                    # Calculate the starting row for the last 5 rows
+                    start_of_last_5 = max(1, num_rows - 4)
 
-                    data_map[did] = {}
+                    # Target rows are the first two within the last 5
+                    target_row_1 = start_of_last_5
+                    target_row_2 = start_of_last_5 + 1
+
+                    # Ensure that target rows are valid (though now redundant with the initial check)
+                    if target_row_2 <= num_rows:
+                        range_data = ws.get(f"B{target_row_1}:C{target_row_2}")
+                        if (
+                            len(range_data) == 2
+                            and len(range_data[0]) == 2
+                            and len(range_data[1]) == 2
+                        ):
+                            total_recus = range_data[0][0]
+                            total_emis = range_data[0][1]
+                            total_recus_min_str = range_data[1][0]
+                            total_emis_min_str = range_data[1][1]
+
+                            total_recus_min = (
+                                total_recus_min_str.split("min")[0].strip()
+                                if "min" in total_recus_min_str
+                                else "0"
+                            )
+                            total_emis_min = (
+                                total_emis_min_str.split("min")[0].strip()
+                                if "min" in total_emis_min_str
+                                else "0"
+                            )
+
+                            data_map[did] = {
+                                "total_recus": total_recus,
+                                "total_emis": total_emis,
+                                "total_recus_min": total_recus_min,
+                                "total_emis_min": total_emis_min,
+                            }
+                        else:
+                            logger.warning(
+                                f"Unexpected data format in {ws.title} for call details."
+                            )
+                    else:
+                        logger.warning(
+                            f"Insufficient rows in {ws.title} to find the last 5 rows (should not occur)."
+                        )
+
             except Exception as e:
                 logger.error(f"Error processing {ws.title}: {e}")
         return data_map
@@ -95,14 +138,21 @@ class CALLLOGTRACK:
             batch_data = []
             for row_idx, did in enumerate(dids, start=1):
                 if did in data_map:
+                    customer_data = data_map[did]
                     # Add date update
                     batch_data.append({"range": f"B{row_idx}", "values": [[date_str]]})
-                    # Add data updates
+                    # Add data updates using the correct keys
+                    updates = [
+                        customer_data["total_recus"],
+                        customer_data["total_emis"],
+                        customer_data["total_recus_min"],
+                        customer_data["total_emis_min"],
+                    ]
                     for i, col in enumerate(self.data_columns):
                         batch_data.append(
                             {
                                 "range": f"{gspread.utils.rowcol_to_A1(row_idx, col)}",
-                                "values": [[data_map[did][i]]],
+                                "values": [[updates[i]]],
                             }
                         )
 

@@ -3,3 +3,19 @@ Then select phone number 9 digits after Appels- and see if it matches with a 9 d
 if matches so export data
 if not match, skip to other tab
 when it finish to lookup each tab it has to write previous month and year on col B 
+Total reçus : 3 = colAA 
+4min20sec = colAC ( but just send the number that is before min = 4, if there is no min, we have to send 0) 
+Total émis = 0 = colAE
+Total emis = 0sec = colAG = send 0 (just send the number that is before min = 0), if there is no min, we have to send 0 
+
+
+
+
+No, the procedure of call log track will be slightly different, the parent class should be there for authentication, file accessing and others. I am telling you the task, 
+there are two google sheets file,  1. customer info file, 2. master call log sending file. 
+the code will do the following,
+1. it will search in the master call log, and look for tabs that start with "Appels-", after "Apples-" it will have a 9 digit number this is an identifier, 
+2. it will form a dictionary with key of that number
+3. then it will get a data from the tab which is located at the 3rd and 4 th row from the last and 2nd to 4th column.
+4. it will collect that data from all the "Apples-" tab
+5. then it will go to custemer info file, then look up for the 9 digit numbers, if matches it will edit  certain columns, say column, 68, 78, 97, 37, 33, 99 insert that data, and edit column B to have the date with previous month
