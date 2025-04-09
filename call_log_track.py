@@ -18,7 +18,7 @@ class CALLLOGTRACK:
 
         # Configuration
         self.tab_prefix = "Appels-"
-        self.identifier_regex = re.compile(r"Appels-(\d{9})")
+        self.identifier_regex = re.compile(r".*?Appels-(\d{9}).*")
         self.customer_lookup_col = 5  # Column E for DID numbers
         self.data_columns = [27, 29, 31, 33]  # Columns to update AA, AC, AE, AG
         self.date_update_col = 2  # Column B for dates
@@ -57,30 +57,40 @@ class CALLLOGTRACK:
             if ws.title.startswith(self.tab_prefix)
         ]
 
+    def _get_last_row_column_a(self, worksheet):
+        """Finds the last row with data in column A of a worksheet."""
+        col_a_values = worksheet.col_values(1)  # Get all values from column A
+        for i in reversed(range(len(col_a_values))):
+            if col_a_values[i] and str(col_a_values[i]).strip():
+                return i + 1  # Row index is 1-based
+        return 0  # Return 0 if no data is found in column A
+
     def _collect_call_data(self, worksheets):
         """Collect data from the 1st and 2nd row of the last 5 rows (columns B-C),
-        skipping sheets with fewer than 5 rows.
+        skipping sheets with fewer than 5 data-containing rows.
         """
         data_map = {}
         for ws in worksheets:
             try:
-                num_rows = ws.row_count
-                if num_rows < 5:
-                    logger.warning(f"Skipping {ws.title} as it has fewer than 5 rows.")
-                    continue  # Skip to the next worksheet
+                num_rows_with_data = self._get_last_row_column_a(ws)
+                if num_rows_with_data < 5:
+                    logger.warning(
+                        f"Skipping {ws.title} as it has fewer than 5 rows with data."
+                    )
+                    continue
 
                 if match := self.identifier_regex.match(ws.title):
                     did = match.group(1)
 
-                    # Calculate the starting row for the last 5 rows
-                    start_of_last_5 = max(1, num_rows - 4)
+                    # Calculate the starting row for the last 5 data-containing rows
+                    start_of_last_5 = max(1, num_rows_with_data - 4)
 
-                    # Target rows are the first two within the last 5
+                    # Target rows are the first two within the last 5 data-containing rows
                     target_row_1 = start_of_last_5
                     target_row_2 = start_of_last_5 + 1
 
-                    # Ensure that target rows are valid (though now redundant with the initial check)
-                    if target_row_2 <= num_rows:
+                    # Ensure that target rows are valid
+                    if target_row_2 <= num_rows_with_data:
                         range_data = ws.get(f"B{target_row_1}:C{target_row_2}")
                         if (
                             len(range_data) == 2
@@ -115,7 +125,7 @@ class CALLLOGTRACK:
                             )
                     else:
                         logger.warning(
-                            f"Insufficient rows in {ws.title} to find the last 5 rows (should not occur)."
+                            f"Insufficient data-containing rows in {ws.title} to find the last 5."
                         )
 
             except Exception as e:
@@ -151,7 +161,7 @@ class CALLLOGTRACK:
                     for i, col in enumerate(self.data_columns):
                         batch_data.append(
                             {
-                                "range": f"{gspread.utils.rowcol_to_A1(row_idx, col)}",
+                                "range": f"{gspread.utils.rowcol_to_a1(row_idx, col)}",
                                 "values": [[updates[i]]],
                             }
                         )
@@ -169,8 +179,13 @@ class CALLLOGTRACK:
 
 # Usage example
 if __name__ == "__main__":
-    tracker = CALLLOGTRACK("credentials.json")
+    status = "DEPLO"  # or 'DEPLOYED'
+    if status == "DEBUG":
+        customer_sheet_id = "1WwcwvTpYAdjhGfH60aqPqfk72pZfF5fS4vzEUEH--_w"
+    else:
+        customer_sheet_id = "1ATCR6d6OfAqPGdozoyA_iLOybRkj7h2-VL7do5ZVuOM"
+    tracker = CALLLOGTRACK("creds.json")
     tracker.process_call_logs(
-        master_sheet_id="your_master_sheet_id",
-        customer_sheet_id="your_customer_sheet_id",
+        master_sheet_id="1y6gbUeBBuZvC6gra4N69kWBdqSIork501TqFexaii2w",
+        customer_sheet_id=customer_sheet_id,
     )
