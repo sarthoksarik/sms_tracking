@@ -1,0 +1,10 @@
+[Unit]
+Description=Run Call Log Tracking on 4th of every month at 6PM
+
+[Timer]
+OnCalendar=*-*-4 18:00:00
+Persistent=true
+AccuracySec=1h
+
+[Install]
+WantedBy=timers.target
