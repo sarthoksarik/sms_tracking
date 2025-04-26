@@ -20,7 +20,7 @@ class CALLLOGTRACK:
         self.tab_prefix = "Appels-"
         self.identifier_regex = re.compile(r".*?Appels-(\d{9}).*")
         self.customer_lookup_col = 5  # Column E for DID numbers
-        self.data_columns = [27, 29, 31, 33]  # Columns to update AA, AC, AE, AG
+        self.data_columns = [27, 29, 31, 33, 37]  # Columns to update AA, AC, AE, AG, AK
         self.date_update_col = 2  # Column B for dates
 
     def _initialize_clients(self):
@@ -91,16 +91,17 @@ class CALLLOGTRACK:
 
                     # Ensure that target rows are valid
                     if target_row_2 <= num_rows_with_data:
-                        range_data = ws.get(f"B{target_row_1}:C{target_row_2}")
+                        range_data = ws.get(f"B{target_row_1}:D{target_row_2}")
                         if (
                             len(range_data) == 2
-                            and len(range_data[0]) == 2
-                            and len(range_data[1]) == 2
+                            and len(range_data[0]) == 3
+                            and len(range_data[1]) == 3
                         ):
                             total_recus = range_data[0][0]
                             total_emis = range_data[0][1]
                             total_recus_min_str = range_data[1][0]
                             total_emis_min_str = range_data[1][1]
+                            total_duree = range_data[0][2]
 
                             total_recus_min = (
                                 total_recus_min_str.split("min")[0].strip()
@@ -112,12 +113,16 @@ class CALLLOGTRACK:
                                 if "min" in total_emis_min_str
                                 else "0"
                             )
+                            total_duree_min = (
+                                int(total_duree.split("s")[0].strip()) // 60
+                            )
 
                             data_map[did] = {
                                 "total_recus": total_recus,
                                 "total_emis": total_emis,
                                 "total_recus_min": total_recus_min,
                                 "total_emis_min": total_emis_min,
+                                "total_duree_min": total_duree_min,
                             }
                         else:
                             logger.warning(
@@ -154,9 +159,10 @@ class CALLLOGTRACK:
                     # Add data updates using the correct keys
                     updates = [
                         customer_data["total_recus"],
-                        customer_data["total_emis"],
                         customer_data["total_recus_min"],
+                        customer_data["total_emis"],
                         customer_data["total_emis_min"],
+                        customer_data["total_duree_min"],
                     ]
                     for i, col in enumerate(self.data_columns):
                         batch_data.append(
