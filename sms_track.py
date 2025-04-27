@@ -127,12 +127,13 @@ class SMSTRACK:
             file_id = file["id"]
 
             # Extract phone number from filename using regex
-            match = re.search(r"DID3(?:-[^-]*)*-(\d{9,})\b", file_name)
+            match = re.search(r"^DID[\w-]*?(\d{9,})[\w-]*$", file_name)
             if not match:
                 logger.warning(f"Skipping invalid filename format: {file_name}")
                 continue
 
-            phone_number = match.group(1)[1:]
+            digits = match.group(1)
+            phone_number = digits[-9:] if len(digits) == 10 else digits[:9]
 
             # Extract value from source sheet
             last_value = self.get_last_month_smscount(file_id)
