@@ -107,7 +107,7 @@ class SMSTRACK:
         except Exception as e:
             logger.error(f"Error updating target sheet: {e}")
 
-    def process_files(self, folder_id, target_sheet_id, name_pattern="DID3-"):
+    def process_files(self, folder_id, target_sheet_id, name_pattern="DID"):
         """
         Main processing method to handle all files.
         :param folder_id: Drive folder ID to process.
